@@ -140,7 +140,7 @@ int main()
             std::cout<<"Server got connection from : "<<s<<"\n";
             while(1)
             {
-                std::size_t n=recv(new_fd,buf,constants::maxBufferSize,0);
+                int n=recv(new_fd,buf,constants::maxBufferSize,0);
                 if(n>0)
                 {
                     if(send_all(new_fd,buf,strlen(buf),0)==-1)

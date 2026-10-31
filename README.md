@@ -6,35 +6,35 @@ The networking and HTTP layers are written by hand on top of the POSIX socket AP
 
 ## Current status
 
-**Stage 1 complete: a basic TCP server and client.**
+**Stage 2 in progress: robust I/O.** The server is now an echo server.
 
 The server:
 
 - resolves a bind address with `getaddrinfo()` (port `8080`, wildcard address, all interfaces)
-- creates a socket, binds it, and listens for connections
-- accepts clients one at a time in a loop and logs each client's address
-- sends each client a greeting, then closes the connection
+- creates a socket, sets `SO_REUSEADDR` so it can restart immediately, binds it, and listens
+- accepts clients one at a time and logs each client's address
+- reads from the client in a loop and sends every byte back until the client disconnects
 
-The client:
+The client (from stage 1):
 
 - resolves `localhost` with `getaddrinfo()` and tries each address until `connect()` succeeds
-- receives the server's greeting with `recv()` and prints it
+- waits for data with `recv()` and prints it
+
+The client does not send anything yet, so use `nc` to test the echo server. Updating the client to send a message and read the echo is part of stage 2.
 
 There is no HTTP, TLS or concurrency yet. Each of these is added in a later stage (see the roadmap).
 
 ### Current limitations
 
-These are known and will be fixed in stage 2:
-
-- The server is iterative: it serves one client at a time.
-- A single `send()` and a single `recv()` are used, with no handling of partial reads or writes.
-- Some error paths exit the server or leak a file descriptor instead of skipping that one client.
+- The server is iterative: it serves one client at a time. A second client can connect, but gets no echo until the first one disconnects.
+- Partial sends and some error paths are not yet handled correctly (in progress, see stage 2 below).
 
 ## Requirements
 
 - Linux
 - A C++23 compiler (developed with Clang)
 - CMake 3.20 or newer
+- `nc` (OpenBSD netcat) for testing: `sudo pacman -S openbsd-netcat` on Arch-based systems
 
 ## Build
 
@@ -53,20 +53,21 @@ Start the server in one terminal:
 ./build/server
 ```
 
-Then connect from a second terminal, with the included client:
-
-```sh
-./build/client
-```
-
-or with any TCP client:
+Then connect from a second terminal and type a few lines. Each line comes back:
 
 ```sh
 nc localhost 8080
-telnet localhost 8080
 ```
 
-Each client prints the server's greeting. The server logs the address of each client that connects.
+Quit with `Ctrl+C`. The server logs the client's address when it connects and a message when it disconnects.
+
+For a one-shot test that exits on its own:
+
+```sh
+echo "hello" | nc -N localhost 8080
+```
+
+Stop the server with `Ctrl+C`. (`Ctrl+Z` only suspends it, and a suspended server keeps port 8080 busy.)
 
 ## Project structure
 
@@ -75,7 +76,7 @@ cpp-https-server/
 ├── CMakeLists.txt
 ├── README.md
 ├── src/
-│   ├── server.cpp    # TCP stream server
+│   ├── server.cpp    # TCP echo server
 │   └── client.cpp    # TCP stream client
 ├── include/          # headers (as the code grows)
 ├── tests/            # automated tests (planned)
@@ -88,7 +89,13 @@ cpp-https-server/
 - [x] **1. Basic TCP server and client**: `socket`, `bind`, `listen`, `accept`, `connect`, `send`/`recv`, `close`
   - [x] Minimal stream server
   - [x] Minimal stream client
-- [ ] **2. Robust I/O**: `send_all` and `recv` loops, an echo server, `SIGPIPE`, per-client error handling
+- [ ] **2. Robust I/O**
+  - [x] Echo server: `recv` loop that handles data, disconnect (`0`) and errors (`-1`)
+  - [x] `SO_REUSEADDR` for immediate restarts
+  - [ ] `send_all()` that handles partial sends and errors
+  - [ ] `SIGPIPE` handling (`MSG_NOSIGNAL`)
+  - [ ] Per-client errors skip the client instead of stopping the server; error messages include the reason (`strerror`)
+  - [ ] Client sends a message and reads the full echo
 - [ ] **3. C++ socket abstraction**: RAII ownership of file descriptors, an error model based on `std::expected`
 - [ ] **4. HTTP/1.1 subset**: a pure, unit-tested and fuzzed request parser with size limits; valid responses
 - [ ] **5. Static file serving**: path-traversal protection and timeouts
