@@ -22,10 +22,34 @@
                          // byte order: htons, htonl, ntohs, ntohl
 
 
-                         
+
+namespace constants
+{
+    constexpr std::size_t maxBufferSize=1024;
+}
+int send_all(std::size_t fd,const char* buffer,std::size_t buffer_len,[[maybe_unused]]int flag)
+{
+    std::size_t len{0};
+    while(len<buffer_len)
+    {
+        len+=send(fd,buffer,buffer_len-len,0);
+        std::cout<<"Completed : "<<len<<" bytes \n";
+    }
+    
+    if(len>=buffer_len)
+    {
+        std::cout<<"Send completed : "<<buffer_len<<" bytes.\n";
+        return 0;
+    }
+    else
+    {
+        std::cout<<"Could not send err\n";
+        return -1;
+    }
+}
+
 
 //beejs get_in_addr
-
 void *get_in_addr(struct sockaddr *sa)
 {
     if(sa->sa_family==AF_INET)
@@ -39,29 +63,16 @@ int main()
 {
     int sockfd;//listening socket
     int new_fd;//new Connection socket
+    const int reuse=1;//for setsockopt
+
+    char buf[constants::maxBufferSize];//Clients incoming data 
+
     char s[INET6_ADDRSTRLEN];//address of the client IPv6
 
     struct addrinfo hints,*servinfo,*p;
-    /*
-     struct addrinfo {
- *      int              ai_flags;      // options: AI_PASSIVE, AI_CANONNAME("listen on every IP of this machine" = NULL node + AI_PASSIVE.)
- *      int              ai_family;     // AF_INET (IPv4), AF_INET6 (IPv6),
- *                                      // AF_UNSPEC (either, hints only)
- *      int              ai_socktype;   // SOCK_STREAM (TCP), SOCK_DGRAM (UDP)
- *      int              ai_protocol;   // 0 in hints = any; results usually
- *                                      // IPPROTO_TCP
- *      socklen_t        ai_addrlen;    // size in bytes of *ai_addr
- *      struct sockaddr *ai_addr;       // the address: IP + port, really a
- *                                      // sockaddr_in or sockaddr_in6
- *      char            *ai_canonname;  // official host name, only with
- *                                      // AI_CANONNAME, else NULL
- *      struct addrinfo *ai_next;       // next node, NULL at end of list
- *  };
-
- */
-
-    struct sockaddr_storage their_addr;//connectors information i.e the clients address which will be filled in by accept() Big enough for it anywas
-    socklen_t addr_size;//socklen_t is an integer type for the size of a socket address, in bytes. On Linux it’s simply a 32-bit unsigned int, defined in <sys/socket.h>.
+   
+    struct sockaddr_storage their_addr;
+    socklen_t addr_size;
 
     int rv;
     memset(&hints,0,sizeof(hints));//Fill the struct with empty values
@@ -76,20 +87,6 @@ int main()
         return 1;
     }
 
-    //NOTE :
-    
-    /*
-    getaddrinfo() uses malloc internally on the result list internally hence freeaddrinfo() must be called to free the memory
-    ,This is done since the number of results is unknown in advance
-    */
-
-    //NOTE : 
-
-    /*
-     Rule: every C API that hands out a resource has a matching release
-     function (getaddrinfo/freeaddrinfo, socket/close, fopen/fclose)
-    */
-
     for(p=servinfo;p!=nullptr;p=p->ai_next)
     {
         if((sockfd=socket(p->ai_family,p->ai_socktype,p->ai_protocol))==-1)
@@ -97,9 +94,16 @@ int main()
             std::cerr<<"Could not create Socket\n";
             continue;
         }
+        if(setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse))<0)
+        {
+            std::cerr<<"setsockopt(SO_REUSEADDR) Failed\n";
+            close(sockfd);
+            continue;
+        }
         if(bind(sockfd,p->ai_addr,p->ai_addrlen)==-1)                                  
         {
             std::cerr<<"Could not Bind to fd\n";
+            close(sockfd);
             continue;
         }    
         else
@@ -133,32 +137,30 @@ int main()
         else
         {
             inet_ntop(their_addr.ss_family,get_in_addr((struct sockaddr *)&their_addr),s,sizeof(s));
-            /*
- *  inet_ntop()   <arpa/inet.h>   "network to presentation"
- *    Binary IP (bytes inside a socket address) -> text "127.0.0.1"
- *
- *    const char *inet_ntop(int af, const void *src, char *dst,
- *                          socklen_t size);
- *      af    AF_INET / AF_INET6        (their_addr.ss_family)
- *      src   pointer to RAW IP BYTES   (&sin_addr or &sin6_addr,
- *            not the whole struct      -> that's why get_in_addr() exists)
- *      dst   my text buffer            char s[INET6_ADDRSTRLEN] (46)
- *      size  sizeof(dst)
- *      returns dst, or NULL + errno (EAFNOSUPPORT, ENOSPC) -> check it!
- *
- *    No port: use ntohs(((sockaddr_in*)&their_addr)->sin_port)
- *    No DNS: only reformats bytes, never blocks.
- *    Reverse: inet_pton() text -> binary (returns 1 ok, 0 bad text)
- *    Avoid inet_ntoa(): IPv4 only, static buffer, not thread-safe.
- *    All-in-one alternative: getnameinfo(NI_NUMERICHOST|NI_NUMERICSERV).
- */
             std::cout<<"Server got connection from : "<<s<<"\n";
-            if(send(new_fd,"Hello From Server <3 ",strlen("Hello From Server <3 "),0)==-1)
+            while(1)
             {
-                std::cerr<<"Error while sending messege from server !!\n";
-                return 1;
+                std::size_t n=recv(new_fd,buf,constants::maxBufferSize,0);
+                if(n>0)
+                {
+                    if(send_all(new_fd,buf,strlen(buf),0)==-1)
+                    {
+                        std::cerr<<"Error while sending messege from server !!\n";
+
+                    }   
+                }
+                else if(n==0)
+                {
+                    break;
+                }
+                else
+                {
+                    std::cerr<<"Error While recieveing !\n";
+                    break;
+                }
             }
-            close(new_fd);
+             std::cout<<"Client Closed Connection ! \n";
+             close(new_fd);
         }
     }
     return 0;
