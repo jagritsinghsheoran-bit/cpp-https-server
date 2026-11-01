@@ -37,7 +37,7 @@ int send_all(int fd,const char* buffer,std::size_t buffer_len,int flag)
         if((placeHolder=send(fd,buffer,buffer_len-len,flag))==-1)
         {
             std::cerr<<"Error while Sending\n";
-            return 1;
+            return -1;
         }
         else
         {
@@ -71,7 +71,7 @@ void *get_in_addr(struct sockaddr *sa)
 int main()
 {
     FileDescriptor sockfd;//listening socket
-    FileDescriptor new_fd;//new Connection socket
+
     const int reuse=1;//for setsockopt
 
     char buf[constants::maxBufferSize];//Clients incoming data 
@@ -135,6 +135,7 @@ int main()
     while(1)
     {
         addr_size=sizeof(their_addr);
+        FileDescriptor new_fd;//connection socket for communication
         new_fd=FileDescriptor{accept(sockfd.get(),(struct sockaddr *)&their_addr,&addr_size)};
         if(new_fd.get()==-1)
         {
