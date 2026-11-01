@@ -22,20 +22,29 @@
                          // byte order: htons, htonl, ntohs, ntohl
 
 
-
+#include "FileDescriptor.h"
 namespace constants
 {
     constexpr std::size_t maxBufferSize=1024;
 }
-int send_all(std::size_t fd,const char* buffer,std::size_t buffer_len,[[maybe_unused]]int flag)
+
+int send_all(int fd,const char* buffer,std::size_t buffer_len,int flag)
 {
-    std::size_t len{0};
+    std::size_t len=0;
     while(len<buffer_len)
     {
-        len+=send(fd,buffer,buffer_len-len,0);
-        std::cout<<"Completed : "<<len<<" bytes \n";
+        int placeHolder=0;
+        if((placeHolder=send(fd,buffer,buffer_len-len,flag))==-1)
+        {
+            std::cerr<<"Error while Sending\n";
+            return 1;
+        }
+        else
+        {
+            len+=placeHolder;
+            std::cout<<"Completed : "<<len<<" bytes \n";
+        }   
     }
-    
     if(len>=buffer_len)
     {
         std::cout<<"Send completed : "<<buffer_len<<" bytes.\n";
@@ -61,8 +70,8 @@ void *get_in_addr(struct sockaddr *sa)
 
 int main()
 {
-    int sockfd;//listening socket
-    int new_fd;//new Connection socket
+    FileDescriptor sockfd;//listening socket
+    FileDescriptor new_fd;//new Connection socket
     const int reuse=1;//for setsockopt
 
     char buf[constants::maxBufferSize];//Clients incoming data 
@@ -89,26 +98,24 @@ int main()
 
     for(p=servinfo;p!=nullptr;p=p->ai_next)
     {
-        if((sockfd=socket(p->ai_family,p->ai_socktype,p->ai_protocol))==-1)
+        if((sockfd=FileDescriptor{socket(p->ai_family,p->ai_socktype,p->ai_protocol)}).get()==-1)
         {
             std::cerr<<"Could not create Socket\n";
             continue;
         }
-        if(setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse))<0)
+        if(setsockopt(sockfd.get(),SOL_SOCKET,SO_REUSEADDR,&reuse,sizeof(reuse))<0)
         {
             std::cerr<<"setsockopt(SO_REUSEADDR) Failed\n";
-            close(sockfd);
             continue;
         }
-        if(bind(sockfd,p->ai_addr,p->ai_addrlen)==-1)                                  
+        if(bind(sockfd.get(),p->ai_addr,p->ai_addrlen)==-1)                                  
         {
             std::cerr<<"Could not Bind to fd\n";
-            close(sockfd);
             continue;
         }    
         else
         {
-            std::cout<<"Socket Created and binded to fd : "<<sockfd<<"\n";
+            std::cout<<"Socket Created and binded to fd : "<<sockfd.get()<<"\n";
             break;
         }                                   
     }
@@ -120,7 +127,7 @@ int main()
         std::cout<<"Server failed to bind\n";
         return 1;
     }
-    if(listen(sockfd,5)==-1)
+    if(listen(sockfd.get(),5)==-1)
     {
         std::cout<<"Could not Listen\n";
         return 1;
@@ -128,8 +135,8 @@ int main()
     while(1)
     {
         addr_size=sizeof(their_addr);
-        new_fd=accept(sockfd,(struct sockaddr *)&their_addr,&addr_size);
-        if(new_fd==-1)
+        new_fd=FileDescriptor{accept(sockfd.get(),(struct sockaddr *)&their_addr,&addr_size)};
+        if(new_fd.get()==-1)
         {
             std::cout<<"Error while accepting\n";
             continue;
@@ -140,13 +147,13 @@ int main()
             std::cout<<"Server got connection from : "<<s<<"\n";
             while(1)
             {
-                int n=recv(new_fd,buf,constants::maxBufferSize,0);
+                int n=recv(new_fd.get(),buf,constants::maxBufferSize,0);
                 if(n>0)
                 {
-                    if(send_all(new_fd,buf,strlen(buf),0)==-1)
+                    if(send_all(new_fd.get(),buf,n,MSG_NOSIGNAL)==-1)
                     {
                         std::cerr<<"Error while sending messege from server !!\n";
-
+                        break;
                     }   
                 }
                 else if(n==0)
@@ -160,7 +167,6 @@ int main()
                 }
             }
              std::cout<<"Client Closed Connection ! \n";
-             close(new_fd);
         }
     }
     return 0;
